@@ -3,10 +3,9 @@
 - [1. QCBM 项目介绍](#user-content-1-qcbm-项目介绍)
 - [2. 项目资源说明](#user-content-2-项目资源说明)
 - [3. TKE 上部署 QCBM](#user-content-3-tke-上部署-qcbm)
-  * [3.1 安装 kubectl](#user-content-31-安装-kubectl)
-  * [3.2 创建 k8s 集群 qcbm](#user-content-32-创建-k8s-集群-qcbm)
-  * [3.3 创建基础配置](#user-content-33-创建基础配置)
-  * [3.4 部署 qcbm 服务](#user-content-34-部署-qcbm-服务)
+  * [3.1 创建 k8s 集群 qcbm](#user-content-32-创建-k8s-集群-qcbm)
+  * [3.2 创建基础配置](#user-content-33-创建基础配置)
+  * [3.3 部署 qcbm 服务](#user-content-34-部署-qcbm-服务)
 - [4. 创建 CLS 日志服务](#user-content-4-创建-cls-日志服务)
   * [4.1 开启容器日志采集功能](#user-content-41-开启容器日志采集功能)
   * [4.2 创建日志集](#user-content-42-创建日志集)
@@ -37,6 +36,9 @@ Q云书城 的所有项目均做了容器化，最终运行于腾讯云的 [容�
 - **Redis**：选用的 5.0 标准版，一主一备模式。
 - **CVM**：选用的 SA2 标准版，运行CentOS 8.0，开启 置放群组功能。
 - **TKE**：选择的是 1.18.4 版的 kubernetes，并使用 Global Router；Kube-proxy 选择的是 iptables，运行时版本为 18.6。K8S Master 采用平台托管，Worker 启用置放群组功能。
+- **TSE**：微服务引擎：用于构建nacos集群。
+- **TCOP**：可观测平台：用于监控微服务调用
+- **CLS**：微服务日志收集
 
 ![](pic/qcbm-arch.png)
 
@@ -66,11 +68,8 @@ Q云书城 的所有项目均做了容器化，最终运行于腾讯云的 [容�
 
 ## 3. TKE 上部署 QCBM
 
-### 3.1 安装 kubectl
 
-Kubectl 是 Kubernetes 的命令行工具，可以在本地运行 Kubernetes 命令。具体安装请见文档：[安装并配置 kubectl](https://kubernetes.io/zh/docs/tasks/tools/install-kubectl/) 。
-
-### 3.2 创建 k8s 集群 qcbm
+### 3.1 创建 k8s 集群 qcbm
 
 实际部署前，需要新建个 K8S 集群。有关集群的创建，官方文档 [购买容器集群](https://cloud.tencent.com/document/product/457/9082) 中有详细说明。但有一点需要注意：在创建集群第二步 “选择机型” 时，建议开启 “置放群组功能” 可将 CVM 打散到到不同母机上，增加系统可靠性。
 
@@ -84,43 +83,30 @@ Kubectl 是 Kubernetes 的命令行工具，可以在本地运行 Kubernetes 命
 
 ![](pic/k8s-cluster-basic-info.png)
 
-如果需要使用 kubectl 和 lens 等 K8S 管理工具，还需要以下两步操作：
+接下来为了后续可以使用kubectl工具，还需要以下两步操作：
 
 - 开启外网访问
-- 将 api 认证 Token 保存为本地 `用户 home/.kube` 下的 config 文件中（若 config 文件已有内容，需要替换），这样每次访问都能进入默认集群中。当然也可以不保存为 `.kube` 下的 config 文件中，相关操作指引见  **集群APIServer信息** 下的 **通过Kubectl连接Kubernetes集群操作说明**。
+- 通过Kubectl连接Kubernetes集群：具体操作过程通过 容器服务 -> 集群 -> 基本信息 下拉可找到操作步骤，如下图所示
 
 ![](pic/apiserver.png)
 
-### 3.3 创建基础配置
+### 3.2 创建基础配置
 
 实际项目上 K8S 前都有很多基本配置，对于 QCBM 项目也一样，需要提前完成以下基础配置，才能成功部署：
+
+- 创建节点池，推荐原生节点池
 
 - 在 [Mysql 控制台](https://console.cloud.tencent.com/cdb) 创建好实例, 并使用 `qcbm-ddl.sql` 初始化；
 
 - 在 [Redis 控制](https://console.cloud.tencent.com/redis) 创建好实例并初始化；
 
-- 部署 Nacos 集群，需要现在 [CVM 控制台](https://console.cloud.tencent.com/cvm) 购买3台 “标准型SA2“ 1C2G 的 CVM，接着安装 java。
+- 部署 Nacos 集群，在 [微服务引擎-注册配置中心-nacos](https://console.cloud.tencent.com/tse/nacos) 新建3节点nacos集群，选择子网为     subnet-basic，在实例信息页面可以查看 集群拓扑结构、内网ip、公网地址等，可直接通过控制台登陆nacos。如果想自己创建三台服务器手动搭建nacos集群，
+请参考 [腾讯云旧版方案](https://github.com/TencentCloud/container-demo/tree/main/dubbo-on-tke)
 
-  ~~~sh
-  # 安装 java
-  yum install java-1.8.0-openjdk-devel.x86_64
-  # 执行下面命令，如有输出 java 版本信息，说明 java 安装成功
-  java -version
-  ~~~
-   
-  最后，部署 Nacos 集群，可参考 Nacos 官方文档 [集群部署说明](https://nacos.io/zh-cn/docs/cluster-mode-quick-start.html) 。若想简单部署，可只购买1台CVM，使用下面的部署命令：
+![](pic/nacos1.png)
+![](pic/nacos2.png)
 
-  ~~~sh
-  # Nacos 单节点部署方式，不适用集群部署！
-  # 下载 Nacos
-  wget https://github.com/alibaba/nacos/releases/download/2.0.0/nacos-server-2.0.0.tar.gz
-  # 解压
-  tar -zxvf nacos-server-2.0.0.tar.gz
-  # 进入 bin 目录，然后用下面命令启动 Nacos
-  ./startup.sh -m standalone
-  ~~~
-
-- 在 [CLB 控制台](https://console.cloud.tencent.com/clb) 为子网 Subnet-K8S 新建个内网型的 CLB，并用该 CLB 实例 ID 替换 `qcbm-dubbo.yaml` 中的 ***lb-xxx***
+- 在 [CLB 控制台](https://console.cloud.tencent.com/clb) 为子网 Subnet-K8S 新建个内网型的 CLB，并用该 CLB 实例 ID 替换 `qcbm-dubbo.yaml` 中的 ***lb-xxx*** (注意：有两处需要替换)
 
   ~~~yaml
   # 将此处的 lb-xxx 修改为子网 subnet-k8s 购买的 CLB 实例 ID
@@ -128,9 +114,18 @@ Kubectl 是 Kubernetes 的命令行工具，可以在本地运行 Kubernetes 命
     service.kubernetes.io/loadbalance-id: lb-xxx
   ~~~
 
-- 在 TSW 控制台的 [【服务观测】](https://console.cloud.tencent.com/tsw/service)->【服务列表】页，单击【接入服务】，选择 Java 语言与 SkyWalking 的数据采集方式。然后，在接入方式下获取接入信息：***接入点*** 和 ***Token*** 信息。
+- 在 TCOP -> [【应用监控】](https://console.cloud.tencent.com/monitor/apm/system)，单击【接入应用】->【Java】->【Skywalking】，
+获取***接入点*** 和 ***Token*** 信息
 
-  ![](pic/tsw-access-point.png)
+  ![](pic/TCOP.png)
+
+【bug提醒】
+- 不要使用OpenTelemetry增强探针，因为在本项目service的启动文件(比如order-service.sh)中已经配置了skywalking的基本信息，如果再使用OpenTelemetry的tke自动接入，监测不会启动并且不会报错
+
+  ![](pic/order-service.png)
+
+- 在微服务引擎中创建的nacos默认密码并不是nacos，而本项目中nacos密码定为了nacos（该部分设定在application.properties中给出）并且没有在qcbm-dubbo.yaml中给出相应的NACOS_ACCOUNT和NACOS_PASSWORD，解决办法是直接把nacos密码改为nacos，同时设置公网访问的白名单只有本机
+
 
 - 修改 `config.yaml` 中下面变量的值：
   - Nacos 地址：NACOS_HOST
@@ -139,11 +134,11 @@ Kubectl 是 Kubernetes 的命令行工具，可以在本地运行 Kubernetes 命
   - Mysql 账号：MYSQL_ACCOUNT （需要先转换为 Base64 编码格式）
   - Mysql 密码：MYSQL_PASSWORD （需要先转换为 Base64 编码格式）
   - Redis 密码：REDIS_PASSWORD （需要先转换为 Base64 编码格式）
-  - 用 TSW 接入点 更新 SW_AGENT_COLLECTOR_BACKEND_SERVICES 变量
-  - 用 TSW Token 更新 SW_AGENT_AUTHENTICATION （需要先转换为 Base64 编码格式）
+  - 用 skywalking 接入点 更新 SW_AGENT_COLLECTOR_BACKEND_SERVICES 变量
+  - 用 skywalking Token 更新 SW_AGENT_AUTHENTICATION （需要先转换为 Base64 编码格式）
  
 
-### 3.4 部署 qcbm 服务
+### 3.3 部署 qcbm 服务
 
 部署步骤如下：
 
@@ -153,18 +148,32 @@ Kubectl 是 Kubernetes 的命令行工具，可以在本地运行 Kubernetes 命
     kubectl apply -f config.yaml
     ~~~
 
+- 在qcmbm命名空间下创建名为qcloudregistrykey的Secret，不然Pod在运行时拉取镜像会失败（可以看到qcbm-dubbo.yaml中用到了qcloudregistrykey）
+具体步骤如下：
+  1. 点击【命名空间】下的【qcbm】，再点击【创建镜像仓库密钥】
+
+  ![](pic/qcloudregistrykey.png)
+
+  2. 选择Secret类型为Dockercfg，镜像仓库域名为ccr.ccs.tencentyun.com
+
+  ![](pic/qcloud2.png)
+
+
 - 创建后端服务
 
   ~~~sh
   kubectl apply -f qcbm-dubbo.yaml
   ~~~
 
+【bug提醒】
+- 先导入config.yaml，再导入qcbm-dubbo.yaml，因为qcbm-dubbo.yaml中用到的ConfigMap和Secret记录在config.yaml中
+
 至此，已完成 QCBM 在 TKE 上的部署。通过 [容器服务控制台](https://console.cloud.tencent.com/tke2)，在【集群】->【服务与路由】->【Ingress】下可以看到创建的 Ingress，通过 ingress 的 VIP 就可以访问 Q云书城 的页面了。
 
 ![](pic/ingress.png)
 
-此时，TSW 也集成好，在 QCBM 页面上点击操作后，在 [TSW 控制台](https://console.cloud.tencent.com/tsw) 下的【链路追踪】-> 【调用链查询】页面可查看调用链的具体信息。
-
+此时，TCOP 也集成好，在 QCBM 页面上点击操作后，在 [TCOP 控制台](https://console.cloud.tencent.com/monitor/apm/system) 可以查询到各个服务的调用信息
+ß
 ![](pic/trace.png)
 
 
